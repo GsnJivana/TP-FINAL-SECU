@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "compile": "esbuild src/messengerNaive.ts --bundle --platform=browser --format=cjs --global-name=sec  --tree-shaking=false  --sourcemap=inline --tsconfig=tsconfig.json --outfile=JS/messengerNaive.js && esbuild src/filter.ts --bundle --platform=browser --format=cjs --global-name=sec  --tree-shaking=false  --sourcemap=inline --tsconfig=tsconfig.json --outfile=JS/filter.js && esbuild src/calculette.ts --bundle --platform=browser --format=cjs --global-name=sec  --tree-shaking=false  --sourcemap=inline --tsconfig=tsconfig.json --outfile=JS/calculette.js && esbuild src/intruder.ts --bundle --platform=browser --format=cjs --global-name=sec  --tree-shaking=false  --sourcemap=inline --tsconfig=tsconfig.json --outfile=JS/intruder.js"
+  },
+  "dependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

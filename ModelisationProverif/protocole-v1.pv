@@ -1,0 +1,96 @@
+type agent.
+type key.
+
+fun pkey(agent):key.
+fun skey(agent):key.
+fun enc(key,bitstring):bitstring.
+fun secret(agent,agent):bitstring.
+fun nonce(agent,agent):bitstring.
+
+const mesg1: bitstring.
+const mesg2: bitstring.
+
+const alice:agent.
+const bob:agent.
+const I:agent.
+
+pred intruder(any_type).
+pred session(agent,agent).
+pred sucessInit(agent,agent,any_type).
+pred sucessResp(agent,agent,any_type).
+pred commitInit(agent,agent,any_type).
+pred commitResp(agent,agent,any_type).
+
+(* Requêtes à tester *)
+
+query intruder(pkey(alice)).
+query intruder(nonce(I,I)).
+query intruder(enc(pkey(alice),mesg1)).
+query intruder(secret(alice,bob)). (* le message n;est visible que par alice et bob*)
+query sucessInit(alice,bob,secret(alice,bob)). (*  alice realise une session complete du protcole avec bob *)
+query sucessResp(bob,alice,secret(alice,bob)). (*  bob realise une session complete du protcole avec alice *)
+
+(* D'autres exemples, à compléter!
+
+query intruder((mesg1,mesg2,(mesg2,mesg1))).
+query intruder(enc(pkey(alice),(mesg2,mesg1))).
+*) 
+
+clauses 
+
+(* Voici quelques exemples de clauses à compléter par toutes les clauses vues en TD pour modéliser l'intrus. *)
+
+(* L'intrus connait toutes les clés publiques et sa clé privée *)
+intruder(pkey(alice));
+intruder(pkey(bob));
+intruder(pkey(I));
+intruder(skey(I));
+
+(* L'intrus peut générer des valeurs aléatoires *)
+intruder(nonce(I,alice));
+intruder(nonce(I,bob));
+intruder(nonce(I,I));
+
+(* Pour tester la modélisation *)
+intruder(mesg1);
+intruder(enc(pkey(I),(mesg1,mesg2)));
+
+(*L’intrus peut déchiffrer un message chiffré s’il a la clé inverse *)
+forall a:agent, m1:bitstring; intruder(enc(skey(a),m1)) & intruder(pkey(a)) -> intruder(m1);
+forall a:agent, m1:bitstring; intruder(enc(pkey(a),m1)) & intruder(skey(a)) -> intruder(m1);
+
+(*L’intrus peut chiffrer un message s’il a la cle de chiffrement *)
+forall a:agent, m1:bitstring; intruder(pkey(a)) & intruder(m1) -> intruder(enc(pkey(a),m1));
+forall a:agent, m1:bitstring; intruder(skey(a)) & intruder(m1) -> intruder(enc(skey(a),m1));
+
+
+
+(* L’intrus peut décomposer une chaîne de caractéres construite avec ( ... ) et retrouver les éléments
+   la constituant décomposition des messages composés *)
+forall m1:bitstring; intruder((m1)) -> intruder(m1);
+forall m1:bitstring, m2:bitstring; intruder((m1,m2)) -> intruder(m1);
+forall m1:bitstring, m2:bitstring; intruder((m1,m2)) -> intruder(m2);
+
+
+
+(* L’intrus peut composer une chaîne de caractéres construite avec ( ... ) à partir des éléments 
+   la constituant *)
+
+forall m1:bitstring; intruder(m1) -> intruder((m1));
+forall m1:bitstring, m2:bitstring; intruder(m1) & intruder(m2) -> intruder((m1,m2));
+
+session(alice,bob);
+session(alice,I);
+session(bob,alice);
+session(bob,I);
+session(I,alice);
+session(I,bob);
+session(alice,alice);
+session(bob,bob);
+session(I,I);
+
+(* *)
+(* A -> B : { m }kb *) 
+forall a:agent, b:agent; session(a,b) -> intruder(enc(pkey(b),(a,secret(a,b))));
+forall a:agent, b:agent; session(a,b) -> sucessInit(a,b,secret(a,b));
+forall a:agent, b:agent, m:bitstring; intruder(enc(pkey(b),(a,m))) -> sucessResp(b,a,m).
