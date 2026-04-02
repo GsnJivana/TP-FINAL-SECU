@@ -1,0 +1,140 @@
+type agent.
+type key.
+
+fun pkey(agent):key.
+fun skey(agent):key.
+fun symkey(agent, agent): key. 
+fun enc(key,bitstring):bitstring.
+fun secret(agent,agent):bitstring.
+fun nonce(agent,agent):bitstring.
+
+const mesg1: bitstring.
+const mesg2: bitstring.
+
+const alice:agent.
+const bob:agent.
+const I:agent.
+
+pred intruder(any_type).
+pred session(agent,agent).
+pred sucessInit(agent,agent,any_type).
+pred sucessResp(agent,agent,any_type).
+pred commitInit(agent,agent,any_type).
+pred commitResp(agent,agent,any_type).
+
+(* Requêtes à tester *)
+
+query intruder(pkey(alice)).
+query intruder(nonce(I,I)).
+query intruder(enc(pkey(alice),mesg1)).
+query intruder(secret(alice,bob)).
+query sucessResp(bob,alice,secret(alice,bob)).
+query sucessInit(alice,bob,secret(alice,bob)).
+(*authentifier l’´emetteur*)
+query sucessInit(alice,bob,secret(alice,I)).
+query sucessInit(alice,bob,secret(I,alice)).
+query sucessInit(alice,bob,secret(bob,I)).
+query sucessInit(alice,bob,secret(I,bob)).
+query sucessInit(alice,bob,secret(bob,alice)).
+query sucessInit(alice,bob,secret(bob,bob)).
+query sucessInit(alice,bob,secret(alice,alice)).
+query sucessInit(alice,bob,secret(I,I)).
+query sucessResp(bob,alice,secret(alice,I)).
+query sucessResp(bob,alice,secret(I,alice)).
+query sucessResp(bob,alice,secret(bob,I)).
+query sucessResp(bob,alice,secret(I,bob)).
+query sucessResp(bob,alice,secret(bob,alice)).
+query sucessResp(bob,alice,secret(bob,bob)).
+query sucessResp(bob,alice,secret(alice,alice)).
+query sucessResp(bob,alice,secret(I,I)).
+(* L'intrus ne doit pas trouver la clé symétrique entre Alice et Bob *)
+query intruder(symkey(alice, bob)).
+(* L'intrus ne doit pas trouver le message secret entre Alice et Bob *)
+query intruder(secret(alice, bob)).
+
+(* D'autres exemples, à compléter!
+
+query intruder((mesg1,mesg2,(mesg2,mesg1))).
+query intruder(enc(pkey(alice),(mesg2,mesg1))).
+*) 
+
+clauses 
+
+(* Voici quelques exemples de clauses à compléter par toutes les clauses vues en TD pour modéliser l'intrus. *)
+
+(* L'intrus connait toutes les clés publiques et sa clé privée *)
+intruder(pkey(alice));
+intruder(pkey(bob));
+intruder(pkey(I));
+intruder(skey(I));
+(* L'intrus connaît ses propres clés symétriques *)
+forall a:agent; intruder(symkey(I, a));
+(*forall a:agent; intruder(symkey(a, I));*)
+
+(* L'intrus peut générer des valeurs aléatoires *)
+intruder(nonce(I,alice));
+intruder(nonce(I,bob));
+intruder(nonce(I,I));
+
+(* Pour tester la modélisation *)
+intruder(mesg1);
+intruder(enc(pkey(I),(mesg1,mesg2)));
+
+(*L’intrus peut déchiffrer un message chiffré s’il a la clé inverse *)
+forall a:agent, m1:bitstring; intruder(enc(skey(a),m1)) & intruder(pkey(a)) -> intruder(m1);
+forall a:agent, m1:bitstring; intruder(enc(pkey(a),m1)) & intruder(skey(a)) -> intruder(m1);
+forall a:agent, b:agent, m:bitstring; intruder(enc(symkey(a,b), m)) & intruder(symkey(a,b)) -> intruder(m); 
+
+(*L’intrus peut chiffrer un message s’il a la cle de chiffrement *)
+forall a:agent, m1:bitstring; intruder(pkey(a)) & intruder(m1) -> intruder(enc(pkey(a),m1));
+forall a:agent, m1:bitstring; intruder(skey(a)) & intruder(m1) -> intruder(enc(skey(a),m1));
+forall k:key, m:bitstring; intruder(k) & intruder(m) -> intruder(enc(k, m));
+
+
+(* L’intrus peut décomposer une chaîne de caractéres construite avec ( ... ) et retrouver les éléments
+   la constituant décomposition des messages composés *)
+forall m1:bitstring; intruder((m1)) -> intruder(m1);
+forall m1:bitstring, m2:bitstring; intruder((m1,m2)) -> intruder(m1);
+forall m1:bitstring, m2:bitstring; intruder((m1,m2)) -> intruder(m2);
+
+
+
+(* L’intrus peut composer une chaîne de caractéres construite avec ( ... ) à partir des éléments 
+   la constituant *)
+
+forall m1:bitstring; intruder(m1) -> intruder((m1));
+forall m1:bitstring, m2:bitstring; intruder(m1) & intruder(m2) -> intruder((m1,m2));
+
+session(alice,bob);
+session(alice,I);
+session(bob,alice);
+session(bob,I);
+session(I,alice);
+session(I,bob);
+session(alice,alice);
+session(bob,bob);
+session(I,I);
+
+(* A -> B : { A , Ksym }kb *)
+(* B -> A : { B , Nb }ka *)
+(* A -> B : { A , Nb , Na secret }Ksym *)
+(* B -> A : { B , Na }Ksym*)
+
+
+forall a:agent, b:agent; session(a,b) -> intruder(enc(pkey(b), (a, symkey(a, b))));
+
+forall a:agent, b:agent; session(a,b) -> commitInit(a, b, symkey(a, b));
+
+forall a:agent, b:agent, k:key;  intruder(enc(pkey(b), (a, k))) & session(a,b) -> intruder(enc(pkey(a), (b, nonce(b, a))));
+
+forall a:agent, b:agent, k:key;  intruder(enc(pkey(b), (a, k))) & session(a,b)-> commitResp(b, a, nonce(b, a));
+
+forall a:agent, b:agent, n:bitstring;   intruder(enc(pkey(a), (b, n))) & commitInit(a, b, symkey(a, b)) ->  intruder(enc(symkey(a, b), (a, n,nonce(a,b),secret(a, b))));
+
+forall a:agent, b:agent, n:bitstring;   intruder(enc(pkey(a), (b, n))) & commitInit(a, b, symkey(a, b)) -> commitInit(a, b, nonce(a,b));
+
+forall a:agent, b:agent, k:key, n1:bitstring, n2:bitstring, s:bitstring;  intruder(enc(k, (a, n1, n2, s))) & commitResp(b,a,n1) ->  intruder(enc(k, (b, n2)));
+
+forall a:agent, b:agent, k:key, n1:bitstring, n2:bitstring, s:bitstring;  intruder(enc(k, (a, n1, n2, s))) & commitResp(b,a,n1) -> sucessResp(b, a, s);
+
+forall a:agent, b:agent, k:key, n:bitstring;  intruder(enc(k, (b,n))) & commitInit(a,b,n) & commitInit(a, b, k)->  sucessInit(a, b, secret(a,b)).

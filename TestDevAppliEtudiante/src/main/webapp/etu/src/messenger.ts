@@ -179,15 +179,19 @@ async function sendMessage(agentName: string, receiverName: string, messageConte
 import {
     stringToPrivateKeyForEncryption, stringToPublicKeyForEncryption,
     stringToPrivateKeyForSignature,
-    stringToPublicKeyForSignature
+    stringToPublicKeyForSignature,
+    encryptWithPublicKey,
+    decryptWithPrivateKey,
+    generateNonce,
 } from './libCrypto'
 
 const userButtonLabel = document.getElementById("user-name") as HTMLLabelElement
 const sendButton = document.getElementById("send-button") as HTMLButtonElement
 const receiver = document.getElementById("receiver") as HTMLInputElement
-const message = document.getElementById("message") as HTMLInputElement
+const messageG = document.getElementById("message") as HTMLInputElement
 const received_messages = document.getElementById("exchanged-messages") as HTMLLabelElement
-
+const clearHistory = document.getElementById("clear-history") as HTMLLabelElement
+clearHistory.addEventListener("click",clearingMessages);
 // Basic utilities for adding/clearing received messages in the page
 function clearingMessages() {
     received_messages.textContent = ""
@@ -201,8 +205,12 @@ function stringToHTML(str: string): HTMLDivElement {
 }
 
 function addingReceivedMessage(message: string) {
-    received_messages.append(stringToHTML('<p></p><p></p>' + message))
+    //received_messages.append(stringToHTML('<p></p><p></p>' + message))
+    const p = document.createElement('p');
+    p.textContent = message;
+    received_messages.append(p);
 }
+
 
 //Index of the last read message
 let lastIndexInHistory = 0
@@ -229,7 +237,15 @@ async function refresh() {
         if (!result.success) { alert(result.failureMessage) }
         else {
             // This is the place where you can perform trigger any operations for refreshing the page
-            addingReceivedMessage("Dummy message!")
+           // addingReceivedMessage("Dummy message!")
+           lastIndexInHistory = result.index
+            if (result.allMessages.length != 0) {
+                for (var m of result.allMessages) {
+                    let [b, sender, msgContent] = await analyseMessage(m)
+                    if (b) actionOnMessageOne(sender, msgContent)
+                    else console.log("Msg " + m + " cannot be exploited by " + user)
+                }
+            }
         }
     }
     catch (error) {
@@ -248,3 +264,119 @@ const intervalRefresh = setInterval(refresh, 2000)
 
 // ------
 
+
+const nonceTable = new Map<string, string>();
+
+
+function actionOnMessageOne(fromA: string, messageContent: string) {
+    const user = globalUserName
+    const textToAdd = `${fromA} -> ${user} : ${messageContent} `
+    addingReceivedMessage(textToAdd)
+}
+
+// Etape 1 : A -> B
+sendButton.onclick = async function() {
+    const agentName = globalUserName;
+    const receiverName = receiver.value;
+    if (!receiverName) return;
+
+    try {
+        console.log("Etape 1 : "+ agentName + " demande une session avec " + receiverName);
+        const pkeyB = await fetchKey(receiverName, true, true);
+        const contentToEncrypt = JSON.stringify(["1", agentName]);
+        const encryptedMessage = await encryptWithPublicKey(pkeyB, contentToEncrypt);
+        
+        const sendResult = await sendMessage(agentName, receiverName, encryptedMessage);
+        if (!sendResult.success) console.log("Erreur envoi Etape 1");
+    } catch (error) {
+        console.log("Erreur au début du protocole : ", error);
+    }
+}
+
+//  ANALYSE DES MESSAGES Etapes 2, 3 et 4
+async function analyseMessage(message: ExtMessage): Promise<[boolean, string, string]> {
+    const agentName = globalUserName; 
+
+    try {
+        if (message.receiver !== agentName) return [false, "", ""];
+
+        const privKey = await fetchKey(agentName, false, true);
+        const messageInClear = await decryptWithPrivateKey(privKey, message.content);
+        const dataArray = JSON.parse(messageInClear) as string[];
+        
+        const index = parseInt(dataArray[0], 10);
+        const senderName = message.sender;
+
+        let contentToEncrypt = "";
+        let encryptedMessage;
+        let pkeyA, pkeyB;
+
+        switch (index) {
+            case 1:
+                console.log("Etape 2 : " + senderName + " veut executer le protocole avec  "+ message.receiver +". Il génère son nonceB.");
+                const nonceB = generateNonce();
+                nonceTable.set(nonceB, senderName); 
+
+                pkeyA = await fetchKey(senderName, true, true);
+                contentToEncrypt = JSON.stringify(["2", agentName, nonceB]);
+                encryptedMessage = await encryptWithPublicKey(pkeyA, contentToEncrypt);
+                
+                await sendMessage(agentName, senderName, encryptedMessage);
+                return [false, "", ""];
+
+            case 2:
+                console.log("Etape 3 : Nonce recu de  " + senderName + ". Envoi de nonceA.");
+                const receivedNonceB = dataArray[2];
+                const nonceA = generateNonce();
+                const messageContent = messageG.value; 
+
+                nonceTable.set(nonceA, senderName); 
+
+                pkeyB = await fetchKey(senderName, true, true);
+                contentToEncrypt = JSON.stringify(["3", agentName, receivedNonceB, messageContent, nonceA]);
+                encryptedMessage = await encryptWithPublicKey(pkeyB, contentToEncrypt);
+                
+                await sendMessage(agentName, senderName, encryptedMessage);
+                
+                addingReceivedMessage(agentName + " -> " + senderName + " : " + messageContent);
+                return [false, "", ""];
+
+            case 3:
+                console.log("Etape 4 : Vérification de nonceB et confirmation.");
+                const checkNonceB = dataArray[2];
+                const finalSecret = dataArray[3];
+                const receivedNonceA = dataArray[4];
+
+                
+                if (nonceTable.get(checkNonceB) === senderName) {
+                    nonceTable.delete(checkNonceB); 
+
+                    pkeyA = await fetchKey(senderName, true, true);
+                    contentToEncrypt = JSON.stringify(["4", agentName, finalSecret, receivedNonceA]);
+                    encryptedMessage = await encryptWithPublicKey(pkeyA, contentToEncrypt);
+                    
+                    await sendMessage(agentName, senderName, encryptedMessage);
+
+                    return [true, senderName, finalSecret];
+                }
+                console.log("Alerte : Le nonce reçu ne correspond pas à la session !");
+                return [false, "", ""];
+
+            case 4:
+                const checkNonceA = dataArray[3];
+
+                if (nonceTable.get(checkNonceA) === senderName) {
+                    nonceTable.delete(checkNonceA);
+                    console.log("Succès : " + senderName + " confirme la réception du secret.");
+                    console.log("SYSTEM -> Message bien reçu par " + senderName );
+                }
+                return [false, "", ""];
+
+            default:
+                return [false, "", ""];
+        }
+    } catch (error) {
+        console.log("Erreur dans le protocole : ", error);
+        return [false, "", ""];
+    }
+}
